@@ -32,4 +32,4 @@ jobs:
           git config user.email "bot@wiesn-monitor"
           git add state.json
           git diff --staged --quiet || git commit -m "Update state"
-          git push
+          git push origin HEAD:main || echo "Push failed, will retry next run"
