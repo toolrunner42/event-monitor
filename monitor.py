@@ -51,15 +51,16 @@ def extract_text(html: str, site_type: str) -> str:
         tables = [td.get_text(strip=True) for td in soup.find_all(["td", "th"])]
         return " | ".join(filter(None, bold + tables))
 
-    elif site_type == "portal":
+     elif site_type == "portal":
+        shift_keywords = ["abend", "evening", "session 2",
+                          "17:", "18:", "19:", "20:", "21:", "22:"]
         options = []
         for sel in soup.find_all("select"):
-            options += [o.get_text(strip=True) for o in sel.find_all("option")]
-        dates = re.findall(r"\d{1,2}\.\d{1,2}\.202[6789]", soup.get_text())
-        return " | ".join(filter(None, options + dates))
-
-    else:
-        return soup.get_text(separator=" ", strip=True)[:8000]
+            for o in sel.find_all("option"):
+                text_lower = o.get_text(strip=True).lower()
+                if any(k in text_lower for k in shift_keywords):
+                    options.append(o.get_text(strip=True))
+        return " | ".join(filter(None, options))
 
 
 def detect_kontingent_announcement(text: str) -> Optional[str]:
