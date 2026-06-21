@@ -51,7 +51,7 @@ def extract_text(html: str, site_type: str) -> str:
         tables = [td.get_text(strip=True) for td in soup.find_all(["td", "th"])]
         return " | ".join(filter(None, bold + tables))
 
-     elif site_type == "portal":
+    elif site_type == "portal":
         shift_keywords = ["abend", "evening", "session 2",
                           "17:", "18:", "19:", "20:", "21:", "22:"]
         options = []
