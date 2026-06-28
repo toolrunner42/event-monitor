@@ -8,13 +8,6 @@
       "kontingent": true
     },
     {
-      "key": "hofbraeu_kontingent",
-      "name": "Hofbraeu Muenchner Kontingent",
-      "url": "https://www.hb-festzelt.de/reservierungen.html",
-      "type": "generic",
-      "kontingent": true
-    },
-    {
       "key": "braeurosl_kontingent",
       "name": "Braeurosl Muenchner Kontingent",
       "url": "https://www.braeurosl.de/reservieren/muenchner-kontingent",
@@ -22,9 +15,9 @@
       "kontingent": true
     },
     {
-      "key": "schuetzenfestzelt",
-      "name": "Schuetzenfestzelt Reservierung",
-      "url": "https://schuetzen-festzelt.de/de/reservierung.html",
+      "key": "schuetzenfestzelt_kontingent",
+      "name": "Schuetzenfestzelt Muenchner Kontingent",
+      "url": "https://schuetzen-festzelt.de/de/muenchner-kontingent.html",
       "type": "generic",
       "kontingent": true
     },
@@ -81,6 +74,13 @@
       "key": "fischer_vroni_portal",
       "name": "Fischer-Vroni Portal",
       "url": "https://reservierung.fischer-vroni.de/reservation",
+      "type": "portal",
+      "kontingent": false
+    },
+    {
+      "key": "schuetzenfestzelt_portal",
+      "name": "Schuetzenfestzelt Portal",
+      "url": "https://reservierung.schuetzenfestzelt.com/reservation/",
       "type": "portal",
       "kontingent": false
     }
