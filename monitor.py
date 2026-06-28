@@ -172,12 +172,22 @@ def main():
             )
         else:
             shift_hint = detect_good_shift(text)
-            notify(
-                title=f"Aenderung: {name}",
-                message=f"Seite hat sich geaendert{shift_hint}\nJetzt pruefen!",
-                url=url,
-                priority="high",
-            )
+            if site.get("kontingent"):
+                notify(
+                    title=f"Aenderung: {name}",
+                    message=f"Seite hat sich geaendert{shift_hint}\nJetzt pruefen!",
+                    url=url,
+                    priority="high",
+                )
+            elif shift_hint:
+                notify(
+                    title=f"Fr/Sa Abend: {name}",
+                    message=f"Fr/Sa Abend Slot erkannt!\nJetzt pruefen!",
+                    url=url,
+                    priority="urgent",
+                )
+            else:
+                print(f"    Kein Fr/Sa Abend, kein Alert")
 
     if state_changed:
         save_state(state)
