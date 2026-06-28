@@ -8,13 +8,6 @@
       "kontingent": true
     },
     {
-      "key": "oktoberfest_de",
-      "name": "Oktoberfest.de Reservierungen",
-      "url": "https://www.oktoberfest.de/zelte/reservierungen",
-      "type": "generic",
-      "kontingent": true
-    },
-    {
       "key": "hofbraeu_kontingent",
       "name": "Hofbraeu Muenchner Kontingent",
       "url": "https://www.hb-festzelt.de/reservierungen.html",
