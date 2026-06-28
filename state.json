@@ -1,14 +1,14 @@
 {
-  "wiesnkini_muenchen": "aa3701868d0b252cd787f0dadf856658",
+  "wiesnkini_muenchen": "5d2c4c6a9476e52f2f0b13fdb9de8be9",
   "hofbraeu_kontingent": "3b3d864d12855da0a9a3697c2e744375",
   "braeurosl_kontingent": "a2e8720a00062dd320a1c1ebec9f1e28",
-  "schuetzenfestzelt": "e92220ba6073adae6816d3a9f5fcb6df",
-  "hacker_portal": "4d6ec764fc4215558a6b6101ee566e16",
-  "paulaner_portal": "bb77417cfb979c856e48a1ea41a7d3bc",
-  "braeurosl_portal": "8c1cfb13845ccad0a251bc9c6a646e7d",
-  "hofbraeu_portal": "dbd6e82cf6fc8b623375f26853b3c3d3",
-  "ochsenbraterei_portal": "b98b196bd47c75e48d40228e16f25f62",
-  "armbrustschuetzen_portal": "de32cea38c4338b1e5da2b790187597e",
+  "schuetzenfestzelt": "1508f678d0685b4225872c19d33d6383",
+  "hacker_portal": "d41d8cd98f00b204e9800998ecf8427e",
+  "paulaner_portal": "d41d8cd98f00b204e9800998ecf8427e",
+  "braeurosl_portal": "d41d8cd98f00b204e9800998ecf8427e",
+  "hofbraeu_portal": "d41d8cd98f00b204e9800998ecf8427e",
+  "ochsenbraterei_portal": "d41d8cd98f00b204e9800998ecf8427e",
+  "armbrustschuetzen_portal": "d41d8cd98f00b204e9800998ecf8427e",
   "schottenhamel_portal": "d41d8cd98f00b204e9800998ecf8427e",
-  "fischer_vroni_portal": "de32cea38c4338b1e5da2b790187597e"
+  "fischer_vroni_portal": "d41d8cd98f00b204e9800998ecf8427e"
 }
