@@ -61,6 +61,8 @@ def extract_text(html: str, site_type: str) -> str:
                 if any(k in text_lower for k in shift_keywords):
                     options.append(o.get_text(strip=True))
         return " | ".join(filter(None, options))
+    else:
+        return soup.get_text(separator=" ", strip=True)[:8000]
 
 
 def detect_kontingent_announcement(text: str) -> Optional[str]:
