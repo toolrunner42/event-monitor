@@ -28,7 +28,7 @@ def load_config() -> dict:
     return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
 
 
-def fetch_page(url: str) -> Optional[str]:
+def fetch_with_requests(url: str) -> Optional[str]:
     try:
         r = requests.get(url, headers={
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
@@ -38,6 +38,26 @@ def fetch_page(url: str) -> Optional[str]:
         return r.text
     except Exception as e:
         print(f"  Fehler {url}: {e}")
+        return None
+
+
+def fetch_with_playwright(url: str) -> Optional[str]:
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                locale="de-DE",
+            )
+            page = context.new_page()
+            page.goto(url, wait_until="networkidle", timeout=30000)
+            page.wait_for_timeout(2000)
+            html = page.content()
+            browser.close()
+            return html
+    except Exception as e:
+        print(f"  Playwright Fehler {url}: {e}")
         return None
 
 
@@ -51,25 +71,11 @@ def extract_text(html: str, site_type: str) -> str:
         tables = [td.get_text(strip=True) for td in soup.find_all(["td", "th"])]
         return " | ".join(filter(None, bold + tables))
 
-    elif site_type == "portal":
-        shift_keywords = ["abend", "evening", "session 2",
-                          "17:", "18:", "19:", "20:", "21:", "22:"]
-        options = []
-        for sel in soup.find_all("select"):
-            for o in sel.find_all("option"):
-                text_lower = o.get_text(strip=True).lower()
-                if any(k in text_lower for k in shift_keywords):
-                    options.append(o.get_text(strip=True))
-        return " | ".join(filter(None, options))
     else:
         return soup.get_text(separator=" ", strip=True)[:8000]
 
 
 def detect_kontingent_announcement(text: str) -> Optional[str]:
-    """
-    Erkennt ob ein Datum + Uhrzeit fuer Muenchner Kontingent angekuendigt wurde.
-    Gibt den gefundenen Hinweis zurueck, sonst None.
-    """
     kontingent_keywords = [
         "kontingent", "muenchner", "münchen", "einheimische",
         "reservierung ab", "ab sofort", "freigabe", "ab dem"
@@ -78,13 +84,11 @@ def detect_kontingent_announcement(text: str) -> Optional[str]:
     if not has_kontingent:
         return None
 
-    # Datum gefunden? (z.B. "25. Juli", "25.07.", "25.7.2026")
     date_pattern = re.search(
         r"(\d{1,2}\.\s*(?:januar|februar|märz|april|mai|juni|juli|august|september|oktober)"
         r"|\d{1,2}\.\d{1,2}\.202[6789])",
         text, re.IGNORECASE
     )
-    # Uhrzeit gefunden? (z.B. "10:00 Uhr", "ab 11 Uhr")
     time_pattern = re.search(r"\d{1,2}[:.]\d{2}\s*Uhr|\bab\s+\d{1,2}\s*Uhr", text, re.IGNORECASE)
 
     if date_pattern and time_pattern:
@@ -96,10 +100,12 @@ def detect_kontingent_announcement(text: str) -> Optional[str]:
 
 def detect_good_shift(text: str) -> str:
     days = ["Freitag", "Fr.", "Samstag", "Sa."]
-    times = ["15:", "16:", "17:", "18:", "19:", "20:", "21:", "22:"]
-    if any(d in text for d in days) and any(t in text for t in times):
+    times = ["15:", "16:", "17:", "18:", "19:", "20:", "21:", "22:", "abend", "Abend"]
+    has_day = any(d in text for d in days)
+    has_time = any(t in text for t in times)
+    if has_day and has_time:
         return " -- Fr/Sa Abend erkannt!"
-    elif any(d in text for d in days):
+    elif has_day:
         return " -- Fr/Sa Termin erkannt"
     return ""
 
@@ -134,12 +140,17 @@ def main():
 
     for site in config["sites"]:
         key = site["key"]
-        name = site["name"]
+        name = site.get("name", key)
         url = site["url"]
         site_type = site.get("type", "generic")
 
         print(f"  {name} ...")
-        html = fetch_page(url)
+
+        if site_type == "portal":
+            html = fetch_with_playwright(url)
+        else:
+            html = fetch_with_requests(url)
+
         if not html:
             continue
 
@@ -161,7 +172,6 @@ def main():
         state[key] = current_hash
         state_changed = True
 
-        # Muenchner Kontingent: Datum + Uhrzeit angekuendigt?
         kontingent_info = detect_kontingent_announcement(text)
         if kontingent_info and site.get("kontingent"):
             notify(
