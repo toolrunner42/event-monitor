@@ -1,51 +1,9 @@
 {
   "sites": [
     {
-      "key": "wiesnkini_muenchen",
-      "name": "Wiesnkini Muenchner Kontingent",
-      "url": "https://wiesnkini.de/oktoberfest-reservierungen/muenchner-kontingent/",
-      "type": "wiesnkini",
-      "kontingent": true
-    },
-    {
-      "key": "braeurosl_kontingent",
-      "name": "Braeurosl Muenchner Kontingent",
-      "url": "https://www.braeurosl.de/reservieren/muenchner-kontingent",
-      "type": "generic",
-      "kontingent": true
-    },
-    {
-      "key": "schuetzenfestzelt_kontingent",
-      "name": "Schuetzenfestzelt Muenchner Kontingent",
-      "url": "https://schuetzen-festzelt.de/de/muenchner-kontingent.html",
-      "type": "generic",
-      "kontingent": true
-    },
-    {
-      "key": "hacker_portal",
-      "name": "Hacker Festzelt Portal",
-      "url": "https://reservierung.derhimmelderbayern.de/reservierung",
-      "type": "portal",
-      "kontingent": false
-    },
-    {
-      "key": "paulaner_portal",
-      "name": "Paulaner Festzelt Portal",
-      "url": "https://reservierung.paulanerfestzelt.de/reservierung",
-      "type": "portal",
-      "kontingent": false
-    },
-    {
       "key": "braeurosl_portal",
       "name": "Braeurosl Portal",
       "url": "https://reservierung.braeurosl.de/reservation/",
-      "type": "portal",
-      "kontingent": false
-    },
-    {
-      "key": "hofbraeu_portal",
-      "name": "Hofbraeu Portal",
-      "url": "https://reservierung.hb-festzelt.de/reservierung",
       "type": "portal",
       "kontingent": false
     },
@@ -60,6 +18,27 @@
       "key": "armbrustschuetzen_portal",
       "name": "Armbrustschuetzenzelt Portal",
       "url": "https://reservierung.armbrustschuetzenzelt.de/reservierung",
+      "type": "portal",
+      "kontingent": false
+    },
+    {
+      "key": "paulaner_portal",
+      "name": "Paulaner Festzelt Portal",
+      "url": "https://reservierung.paulanerfestzelt.de/reservierung",
+      "type": "portal",
+      "kontingent": false
+    },
+    {
+      "key": "hacker_portal",
+      "name": "Hacker Festzelt Portal",
+      "url": "https://reservierung.derhimmelderbayern.de/reservierung",
+      "type": "portal",
+      "kontingent": false
+    },
+    {
+      "key": "hofbraeu_portal",
+      "name": "Hofbraeu Portal",
+      "url": "https://reservierung.hb-festzelt.de/reservierung",
       "type": "portal",
       "kontingent": false
     },
@@ -83,6 +62,27 @@
       "url": "https://reservierung.schuetzenfestzelt.com/reservation/",
       "type": "portal",
       "kontingent": false
+    },
+    {
+      "key": "wiesnkini_muenchen",
+      "name": "Wiesnkini Muenchner Kontingent",
+      "url": "https://wiesnkini.de/oktoberfest-reservierungen/muenchner-kontingent/",
+      "type": "wiesnkini",
+      "kontingent": true
+    },
+    {
+      "key": "braeurosl_kontingent",
+      "name": "Braeurosl Muenchner Kontingent",
+      "url": "https://www.braeurosl.de/reservieren/muenchner-kontingent",
+      "type": "generic",
+      "kontingent": true
+    },
+    {
+      "key": "schuetzenfestzelt_kontingent",
+      "name": "Schuetzenfestzelt Muenchner Kontingent",
+      "url": "https://schuetzen-festzelt.de/de/muenchner-kontingent.html",
+      "type": "generic",
+      "kontingent": true
     }
   ]
 }
