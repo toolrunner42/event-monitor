@@ -242,19 +242,29 @@ def detect_kontingent_announcement(text: str) -> Optional[str]:
     return None
 
 
-def detect_kontingent_tab(nav_text: str) -> bool:
-    keywords = [
-        "münchner kontingent", "muenchner kontingent",
-        "münchen kontingent", "muenchen kontingent",
-        "münchner reservierung", "muenchner reservierung",
+def detect_kontingent_tab(new_nav: str, old_nav: str = "") -> bool:
+    # Broad: alert if any word containing "münch" appears that wasn't in the old nav
+    new_lower = new_nav.lower()
+    old_lower = old_nav.lower()
+
+    # Check for newly appearing "münch" fragments (catches any spelling variant)
+    import re as _re
+    new_munch_words = set(_re.findall(r'\S*m[uü][e]?nch\S*', new_lower))
+    old_munch_words = set(_re.findall(r'\S*m[uü][e]?nch\S*', old_lower))
+    if new_munch_words - old_munch_words:
+        return True
+
+    # Also check fixed keywords that should trigger even if somehow already present
+    hard_keywords = [
+        "einheimische", "einheimischer",
+        "stadtticket", "locals only",
+        "muc kontingent", "muc reservierung",
         "echte münchener", "echte münchner",
         "echte muenchener", "echte muenchner",
-        "einheimische", "einheimischer",
-        "stadtticket", "münchner ticket",
-        "locals only", "muc kontingent",
-        "münchner buchung", "muc reservierung",
     ]
-    return any(k in nav_text.lower() for k in keywords)
+    new_hard = [k for k in hard_keywords if k in new_lower]
+    old_hard = [k for k in hard_keywords if k in old_lower]
+    return bool(set(new_hard) - set(old_hard))
 
 
 def notify(title: str, message: str, url: str = "", priority: str = "high"):
@@ -325,7 +335,7 @@ def main():
                     url=url,
                     priority="urgent",
                 )
-            elif detect_kontingent_tab(portal_data.get("nav", "")):
+            elif detect_kontingent_tab(portal_data.get("nav", ""), previous_data.get("nav", "")):
                 notify(
                     title=f"KONTINGENT TAB: {name}",
                     message="Muenchner Kontingent Tab ist jetzt sichtbar!\nSofort pruefen!",
