@@ -243,8 +243,17 @@ def detect_kontingent_announcement(text: str) -> Optional[str]:
 
 
 def detect_kontingent_tab(nav_text: str) -> bool:
-    keywords = ["münchner kontingent", "muenchner kontingent", "münchen kontingent",
-                "muenchen kontingent", "münchner reservierung"]
+    keywords = [
+        "münchner kontingent", "muenchner kontingent",
+        "münchen kontingent", "muenchen kontingent",
+        "münchner reservierung", "muenchner reservierung",
+        "echte münchener", "echte münchner",
+        "echte muenchener", "echte muenchner",
+        "einheimische", "einheimischer",
+        "stadtticket", "münchner ticket",
+        "locals only", "muc kontingent",
+        "münchner buchung", "muc reservierung",
+    ]
     return any(k in nav_text.lower() for k in keywords)
 
 
