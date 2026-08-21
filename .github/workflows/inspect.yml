@@ -1,0 +1,30 @@
+name: Inspect Portal Structure
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-v1
+
+      - name: Install dependencies
+        run: pip install playwright beautifulsoup4
+
+      - name: Install Playwright browsers
+        run: playwright install chromium --with-deps
+
+      - name: Inspect portal
+        run: python inspect.py
