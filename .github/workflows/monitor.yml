@@ -18,8 +18,17 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-v1
+
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: pip install requests beautifulsoup4 playwright
+
+      - name: Install Playwright browsers
+        run: playwright install chromium --with-deps
 
       - name: Run monitor
         env:
