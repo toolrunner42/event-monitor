@@ -27,4 +27,4 @@ jobs:
         run: playwright install chromium --with-deps
 
       - name: Inspect portal
-        run: python inspect.py
+        run: python check_portal.py
