@@ -13,19 +13,14 @@ STATE_FILE = Path(__file__).parent / "state.json"
 CONFIG_FILE = Path(__file__).parent / "config.json"
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
 
-# Wiesn 2026: alle Freitage und Samstage
-WIESN_DATES = [
-    ("19.09", "Sa 19.09 Anstich"),
-    ("19. September", "Sa 19.09 Anstich"),
-    ("25.09", "Fr 25.09"),
-    ("25. September", "Fr 25.09"),
-    ("26.09", "Sa 26.09"),
-    ("26. September", "Sa 26.09"),
-    ("02.10", "Fr 02.10"),
-    ("2. Oktober", "Fr 02.10"),
-    ("03.10", "Sa 03.10"),
-    ("3. Oktober", "Sa 03.10"),
-]
+# Wiesn 2026: Freitage und Samstage die wir überwachen
+WIESN_DATES = {
+    "2026-09-19": "Sa 19.09 Anstich",
+    "2026-09-25": "Fr 25.09",
+    "2026-09-26": "Sa 26.09",
+    "2026-10-02": "Fr 02.10",
+    "2026-10-03": "Sa 03.10",
+}
 
 
 def load_state() -> dict:
@@ -85,8 +80,35 @@ def extract_text(html: str, site_type: str) -> str:
         tables = [td.get_text(strip=True) for td in soup.find_all(["td", "th"])]
         return " | ".join(filter(None, bold + tables))
 
+    elif site_type == "portal":
+        # Extrahiere Datum-Optionen aus dem Dropdown (value="2026-09-25" etc.)
+        option_values = []
+        for option in soup.find_all("option"):
+            val = option.get("value", "").strip()
+            if re.match(r"^\d{4}-\d{2}-\d{2}$", val):
+                option_values.append(val)
+        # Auch Nav-Tabs checken (für Münchner Kontingent Tab)
+        nav_text = " ".join(
+            a.get_text(strip=True)
+            for a in soup.find_all(["a", "button", "li"])
+        )
+        dates_str = " | ".join(sorted(set(option_values)))
+        return f"DATES:{dates_str} | NAV:{nav_text[:500]}"
+
     else:
         return soup.get_text(separator=" ", strip=True)[:8000]
+
+
+def find_new_wiesn_dates(old_text: Optional[str], new_text: str) -> list:
+    """Gibt Liste von neu erschienenen Wiesn Fr/Sa Daten zurück."""
+    new_dates = set(re.findall(r"\d{4}-\d{2}-\d{2}", new_text))
+    old_dates = set(re.findall(r"\d{4}-\d{2}-\d{2}", old_text or ""))
+    appeared = new_dates - old_dates
+    found = []
+    for date_key, label in WIESN_DATES.items():
+        if date_key in appeared:
+            found.append(label)
+    return found
 
 
 def detect_kontingent_announcement(text: str) -> Optional[str]:
@@ -112,23 +134,7 @@ def detect_kontingent_announcement(text: str) -> Optional[str]:
     return None
 
 
-def detect_wiesn_slot(text: str) -> str:
-    """Erkennt ob ein Wiesn Fr/Sa Termin im Text vorkommt."""
-    found = []
-    for pattern, label in WIESN_DATES:
-        if pattern in text:
-            if label not in found:
-                found.append(label)
-    if found:
-        return ", ".join(found[:3])
-    # Fallback: generisches Fr/Sa
-    if any(d in text for d in ["Freitag", "Samstag"]):
-        return "Fr/Sa erkannt"
-    return ""
-
-
-def detect_muenchen_kontingent_tab(text: str) -> bool:
-    """Erkennt ob ein Muenchner Kontingent Tab/Bereich auf einem Portal aufgetaucht ist."""
+def detect_kontingent_tab(text: str) -> bool:
     keywords = ["münchner kontingent", "muenchner kontingent", "münchen kontingent",
                 "muenchen kontingent", "münchner reservierung"]
     return any(k in text.lower() for k in keywords)
@@ -181,10 +187,18 @@ def main():
         text = extract_text(html, site_type)
         current_hash = hashlib.md5(text.encode()).hexdigest()
         previous_hash = state.get(key)
+        previous_text = state.get(f"{key}_text")
 
         if previous_hash is None:
             print(f"    Baseline gespeichert")
+            # Zeige schon vorhandene Wiesn Daten beim ersten Run
+            if site_type == "portal":
+                existing = [label for date_key, label in WIESN_DATES.items()
+                           if date_key in text]
+                if existing:
+                    print(f"    Bereits verfuegbar: {', '.join(existing)}")
             state[key] = current_hash
+            state[f"{key}_text"] = text
             state_changed = True
             continue
 
@@ -194,46 +208,46 @@ def main():
 
         print(f"    AENDERUNG erkannt!")
         state[key] = current_hash
+        state[f"{key}_text"] = text
         state_changed = True
 
-        # Kontingent-Seiten: Datum + Uhrzeit Ankuendigung?
-        kontingent_info = detect_kontingent_announcement(text)
-        if kontingent_info and site.get("kontingent"):
-            notify(
-                title=f"KONTINGENT: {name}",
-                message=f"Ankuendigung: {kontingent_info}\nJetzt vormerken!",
-                url=url,
-                priority="urgent",
-            )
-        # Portal: Muenchner Kontingent Tab aufgetaucht?
-        elif site_type == "portal" and detect_muenchen_kontingent_tab(text):
-            notify(
-                title=f"KONTINGENT TAB: {name}",
-                message=f"Muenchner Kontingent jetzt buchbar!\nSofort pruefen!",
-                url=url,
-                priority="urgent",
-            )
-        # Portal: Wiesn Fr/Sa Slot erkannt?
-        elif site_type == "portal":
-            slot = detect_wiesn_slot(text)
-            if slot:
+        # Portal: neue Wiesn Fr/Sa Daten aufgetaucht?
+        if site_type == "portal":
+            new_dates = find_new_wiesn_dates(previous_text, text)
+            if new_dates:
                 notify(
-                    title=f"Wiesn Slot: {name}",
-                    message=f"Neuer Slot: {slot}\nJetzt pruefen!",
+                    title=f"NEUER SLOT: {name}",
+                    message=f"Jetzt buchbar: {', '.join(new_dates)}\nSofort buchen!",
+                    url=url,
+                    priority="urgent",
+                )
+            elif detect_kontingent_tab(text):
+                notify(
+                    title=f"KONTINGENT TAB: {name}",
+                    message=f"Muenchner Kontingent jetzt buchbar!\nSofort pruefen!",
                     url=url,
                     priority="urgent",
                 )
             else:
-                print(f"    Kein Wiesn Fr/Sa erkannt, kein Alert")
-        # Kontingent-Seiten: jede Aenderung melden
-        elif site.get("kontingent"):
-            slot = detect_wiesn_slot(text)
-            notify(
-                title=f"Aenderung: {name}",
-                message=f"Seite hat sich geaendert{(' -- ' + slot) if slot else ''}\nJetzt pruefen!",
-                url=url,
-                priority="high",
-            )
+                print(f"    Kein neuer Wiesn Fr/Sa Slot, kein Alert")
+
+        # Kontingent-Seiten
+        else:
+            kontingent_info = detect_kontingent_announcement(text)
+            if kontingent_info and site.get("kontingent"):
+                notify(
+                    title=f"KONTINGENT: {name}",
+                    message=f"Ankuendigung: {kontingent_info}\nJetzt vormerken!",
+                    url=url,
+                    priority="urgent",
+                )
+            elif site.get("kontingent"):
+                notify(
+                    title=f"Aenderung: {name}",
+                    message=f"Seite hat sich geaendert\nJetzt pruefen!",
+                    url=url,
+                    priority="high",
+                )
 
     if state_changed:
         save_state(state)
