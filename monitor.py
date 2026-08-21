@@ -13,6 +13,20 @@ STATE_FILE = Path(__file__).parent / "state.json"
 CONFIG_FILE = Path(__file__).parent / "config.json"
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
 
+# Wiesn 2026: alle Freitage und Samstage
+WIESN_DATES = [
+    ("19.09", "Sa 19.09 Anstich"),
+    ("19. September", "Sa 19.09 Anstich"),
+    ("25.09", "Fr 25.09"),
+    ("25. September", "Fr 25.09"),
+    ("26.09", "Sa 26.09"),
+    ("26. September", "Sa 26.09"),
+    ("02.10", "Fr 02.10"),
+    ("2. Oktober", "Fr 02.10"),
+    ("03.10", "Sa 03.10"),
+    ("3. Oktober", "Sa 03.10"),
+]
+
 
 def load_state() -> dict:
     if STATE_FILE.exists():
@@ -98,16 +112,26 @@ def detect_kontingent_announcement(text: str) -> Optional[str]:
     return None
 
 
-def detect_good_shift(text: str) -> str:
-    days = ["Freitag", "Fr.", "Samstag", "Sa."]
-    times = ["15:", "16:", "17:", "18:", "19:", "20:", "21:", "22:", "abend", "Abend"]
-    has_day = any(d in text for d in days)
-    has_time = any(t in text for t in times)
-    if has_day and has_time:
-        return " -- Fr/Sa Abend erkannt!"
-    elif has_day:
-        return " -- Fr/Sa Termin erkannt"
+def detect_wiesn_slot(text: str) -> str:
+    """Erkennt ob ein Wiesn Fr/Sa Termin im Text vorkommt."""
+    found = []
+    for pattern, label in WIESN_DATES:
+        if pattern in text:
+            if label not in found:
+                found.append(label)
+    if found:
+        return ", ".join(found[:3])
+    # Fallback: generisches Fr/Sa
+    if any(d in text for d in ["Freitag", "Samstag"]):
+        return "Fr/Sa erkannt"
     return ""
+
+
+def detect_muenchen_kontingent_tab(text: str) -> bool:
+    """Erkennt ob ein Muenchner Kontingent Tab/Bereich auf einem Portal aufgetaucht ist."""
+    keywords = ["münchner kontingent", "muenchner kontingent", "münchen kontingent",
+                "muenchen kontingent", "münchner reservierung"]
+    return any(k in text.lower() for k in keywords)
 
 
 def notify(title: str, message: str, url: str = "", priority: str = "high"):
@@ -172,32 +196,44 @@ def main():
         state[key] = current_hash
         state_changed = True
 
+        # Kontingent-Seiten: Datum + Uhrzeit Ankuendigung?
         kontingent_info = detect_kontingent_announcement(text)
         if kontingent_info and site.get("kontingent"):
             notify(
                 title=f"KONTINGENT: {name}",
-                message=f"Datum + Uhrzeit angekuendigt: {kontingent_info}\nJetzt vormerken!",
+                message=f"Ankuendigung: {kontingent_info}\nJetzt vormerken!",
                 url=url,
                 priority="urgent",
             )
-        else:
-            shift_hint = detect_good_shift(text)
-            if site.get("kontingent"):
+        # Portal: Muenchner Kontingent Tab aufgetaucht?
+        elif site_type == "portal" and detect_muenchen_kontingent_tab(text):
+            notify(
+                title=f"KONTINGENT TAB: {name}",
+                message=f"Muenchner Kontingent jetzt buchbar!\nSofort pruefen!",
+                url=url,
+                priority="urgent",
+            )
+        # Portal: Wiesn Fr/Sa Slot erkannt?
+        elif site_type == "portal":
+            slot = detect_wiesn_slot(text)
+            if slot:
                 notify(
-                    title=f"Aenderung: {name}",
-                    message=f"Seite hat sich geaendert{shift_hint}\nJetzt pruefen!",
-                    url=url,
-                    priority="high",
-                )
-            elif shift_hint:
-                notify(
-                    title=f"Fr/Sa Abend: {name}",
-                    message=f"Fr/Sa Abend Slot erkannt!\nJetzt pruefen!",
+                    title=f"Wiesn Slot: {name}",
+                    message=f"Neuer Slot: {slot}\nJetzt pruefen!",
                     url=url,
                     priority="urgent",
                 )
             else:
-                print(f"    Kein Fr/Sa Abend, kein Alert")
+                print(f"    Kein Wiesn Fr/Sa erkannt, kein Alert")
+        # Kontingent-Seiten: jede Aenderung melden
+        elif site.get("kontingent"):
+            slot = detect_wiesn_slot(text)
+            notify(
+                title=f"Aenderung: {name}",
+                message=f"Seite hat sich geaendert{(' -- ' + slot) if slot else ''}\nJetzt pruefen!",
+                url=url,
+                priority="high",
+            )
 
     if state_changed:
         save_state(state)
