@@ -4,10 +4,14 @@
     "nav": "Home Reservierung Meine Buchungen Shop DE EN Home Reservierung Meine Buchungen Shop Weiter Bräurosl © 2026 Impressum Impressum AGB AGB Datenschutz Datenschutz Powered by",
     "slots": {}
   },
-  "ochsenbraterei_portal": "60f6cbdd07b5d3f8a22b1421566195f5",
+  "ochsenbraterei_portal": "0963fa209061efac04e2b84c5130d2c7",
   "ochsenbraterei_portal_data": {
     "nav": "Startseite Ihre Übersicht Reservierungen Shop Münchner Kontingent DE EN Startseite Ihre Übersicht Reservierungen Shop Münchner Kontingent info@ochsenbraterei.de AGB Weiter Ochsenbraterei © 2026 Impressum Impressum AGB AGB Datenschutz Datenschutz Powered by",
-    "slots": {}
+    "slots": {
+      "2026-10-02": [
+        "Bei Reservierungsanfragen für den Mittag ab fünf Tischen senden Sie uns bitte eine E-Mail an info@ochsenbraterei.de."
+      ]
+    }
   },
   "armbrustschuetzen_portal": "599e48b9769a2c4aafa9e7eec26f08e3",
   "armbrustschuetzen_portal_data": {
@@ -35,9 +39,9 @@
     "nav": "Startseite Reservierung Meine Reservierungen DE EN Startseite Reservierung Meine Reservierungen Weiter Hofbräufestzelt © 2026 Impressum Impressum Datenschutz Datenschutz AGB AGB Presse Presse Powered by",
     "slots": {}
   },
-  "schottenhamel_portal": "18dba2dea1d04130f49485ea31feefc9",
+  "schottenhamel_portal": "5a1223d02ef3df25fde3f654476ec442",
   "schottenhamel_portal_data": {
-    "nav": "",
+    "nav": "HOME NEUE RESERVIERUNG\nLOGIN HOME NEUE RESERVIERUNG LOGIN 1 2 3 4 Weiter > Impressum AGB Datenschutzerklärung",
     "slots": {}
   },
   "fischer_vroni_portal": "6affb74e31233b114203424c3cacbf04",
@@ -48,9 +52,9 @@
       "2026-10-02": []
     }
   },
-  "schuetzenfestzelt_portal": "18dba2dea1d04130f49485ea31feefc9",
+  "schuetzenfestzelt_portal": "72f8fbb20e2ebbe14a65f75de6e4fdd4",
   "schuetzenfestzelt_portal_data": {
-    "nav": "",
+    "nav": "Home Reservierung Münchner Kontingent\nLogin Home Reservierung Münchner Kontingent Login Weiter > IMPRESSUM AGB DATENSCHUTZERKLÄRUNG",
     "slots": {}
   },
   "wiesnkini_muenchen": "1a985bade5bb77269189a2479112e80c",
