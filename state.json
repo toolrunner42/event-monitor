@@ -21,10 +21,13 @@
       "2026-10-02": []
     }
   },
-  "paulaner_portal": "18dba2dea1d04130f49485ea31feefc9",
+  "paulaner_portal": "3b17367d974e8383a7342affe8f08abe",
   "paulaner_portal_data": {
-    "nav": "",
-    "slots": {}
+    "nav": "Startseite Reservierung Meine Buchungen Shop DE EN Startseite Reservierung Meine Buchungen Shop Weiter Stiftl Oktoberfest © 2026 AGB AGB Impressum Impressum Datenschutz Datenschutz Powered by",
+    "slots": {
+      "2026-09-25": [],
+      "2026-10-02": []
+    }
   },
   "hacker_portal": "2d800f1249e1a8ee8a2f75f97440fba8",
   "hacker_portal_data": {
