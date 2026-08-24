@@ -116,14 +116,50 @@ def fetch_portal_data(url: str) -> dict:
                 if re.match(r"^\d{4}-\d{2}-\d{2}$", val) and val in WIESN_DATES:
                     available_dates.append(val)
 
-            # For each target date: select it, wait for Livewire, read sessions
+            # For each target date: reload page, select date, click Weiter, read sessions
             for date_val in available_dates:
-                date_select.select_option(date_val)
-                page.wait_for_timeout(2500)
+                # Reload for each date to start from step 1 every time
+                page.goto(url, wait_until="networkidle", timeout=30000)
+                page.wait_for_timeout(1500)
+
+                # Re-find date select after reload
+                ds = None
+                for sel in page.query_selector_all("select"):
+                    for opt in sel.query_selector_all("option"):
+                        val = (opt.get_attribute("value") or "").strip()
+                        if re.match(r"^\d{4}-\d{2}-\d{2}$", val):
+                            ds = sel
+                            break
+                    if ds:
+                        break
+
+                if not ds:
+                    result["slots"][date_val] = []
+                    continue
+
+                ds.select_option(date_val)
+                page.wait_for_timeout(1500)
+
+                # Click "Weiter" / "Next" to get to step 2 (session selection)
+                weiter = None
+                for label in ["Weiter", "Next", "Continuer", "Volgende"]:
+                    try:
+                        weiter = page.locator(f"button:has-text('{label}')").first
+                        if weiter.is_visible():
+                            break
+                        weiter = None
+                    except Exception:
+                        weiter = None
+
+                if weiter:
+                    weiter.click()
+                    page.wait_for_timeout(2500)
+                else:
+                    page.wait_for_timeout(1500)
 
                 slots = []
 
-                # 1. Check secondary selects (not the date select)
+                # 1. Secondary selects (not the date select)
                 for sel in page.query_selector_all("select"):
                     has_iso = any(
                         re.match(r"^\d{4}-\d{2}-\d{2}$", (o.get_attribute("value") or "").strip())
@@ -153,8 +189,9 @@ def fetch_portal_data(url: str) -> dict:
                         for line in body_text.split("\n"):
                             line = line.strip()
                             if any(k in line.lower() for k in
-                                   ["abend", "nachmittag", "schicht", "session", "mittag", "dinner"]):
-                                if 3 < len(line) < 120:
+                                   ["abend", "nachmittag", "schicht", "session",
+                                    "mittag", "dinner", "frueh", "frühshoppen"]):
+                                if 3 < len(line) < 150:
                                     slots.append(line)
                     except Exception:
                         pass
