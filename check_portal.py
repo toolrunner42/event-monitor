@@ -15,7 +15,7 @@ with sync_playwright() as p:
     page.goto(URL, wait_until="networkidle", timeout=30000)
     page.wait_for_timeout(2000)
 
-    # Find and select the date
+    # Find date select
     date_select = None
     for sel in page.query_selector_all("select"):
         for opt in sel.query_selector_all("option"):
@@ -27,54 +27,64 @@ with sync_playwright() as p:
             break
 
     if not date_select:
-        print("No date select found!")
+        print("No date select!")
         browser.close()
         exit()
 
-    print(f"Step 1: Selecting {TARGET_DATE}")
-    date_select.select_option(TARGET_DATE)
-    page.wait_for_timeout(1500)
+    print(f"Step 1: Setting date via JS events")
+    # Use JS to set value + dispatch proper events that Livewire listens to
+    page.evaluate(f"""
+        const sel = document.querySelector('select');
+        sel.value = '{TARGET_DATE}';
+        sel.dispatchEvent(new Event('input', {{bubbles: true}}));
+        sel.dispatchEvent(new Event('change', {{bubbles: true}}));
+    """)
+    page.wait_for_timeout(2000)
 
-    # Find and click Weiter
+    # Dismiss Livewire error overlay if present
+    overlay = page.query_selector("#livewire-error-overlay")
+    if overlay and overlay.is_visible():
+        print("Livewire overlay detected, dismissing...")
+        # Try clicking a button inside it
+        btn = page.query_selector("#livewire-error-overlay button")
+        if btn:
+            btn.click()
+        else:
+            # Click the overlay itself to dismiss
+            page.evaluate("document.getElementById('livewire-error-overlay').style.display='none';")
+        page.wait_for_timeout(500)
+        print("Overlay dismissed")
+    else:
+        print("No overlay - good!")
+
+    print("\n=== PAGE TEXT after date select ===")
+    print(page.inner_text("body")[:2000])
+
+    print("\n=== BUTTONS ===")
+    for btn in page.query_selector_all("button"):
+        t = btn.inner_text().strip()
+        if t:
+            print(f"  {t[:80]!r} visible={btn.is_visible()}")
+
+    # Try clicking Weiter
     weiter = None
-    for label in ["Weiter", "Next", "Continuer", "Volgende"]:
+    for label in ["Weiter", "Next"]:
         try:
             btn = page.locator(f"button:has-text('{label}')").first
             if btn.is_visible():
                 weiter = btn
-                print(f"Found button: {label}")
+                print(f"\nFound Weiter button: {label}")
                 break
-        except Exception:
+        except:
             pass
 
     if weiter:
-        weiter.click()
-        print("Clicked Weiter, waiting for step 2...")
+        weiter.click(timeout=10000)
+        print("Clicked Weiter!")
         page.wait_for_timeout(3000)
+        print("\n=== PAGE TEXT after Weiter ===")
+        print(page.inner_text("body")[:3000])
     else:
-        print("No Weiter button found!")
-
-    print("\n=== SELECTS on step 2 ===")
-    for sel in page.query_selector_all("select"):
-        opts = [(o.get_attribute("value") or "", o.inner_text().strip()) for o in sel.query_selector_all("option")]
-        print(f"  {opts[:10]}")
-
-    print("\n=== RADIO BUTTONS ===")
-    for inp in page.query_selector_all("input[type=radio]"):
-        val = inp.get_attribute("value") or ""
-        inp_id = inp.get_attribute("id") or ""
-        lbl = page.query_selector(f"label[for='{inp_id}']")
-        lbl_text = lbl.inner_text().strip() if lbl else ""
-        print(f"  val={val!r} label={lbl_text!r}")
-
-    print("\n=== ALL BUTTONS ===")
-    for btn in page.query_selector_all("button"):
-        t = btn.inner_text().strip()
-        if t:
-            print(f"  {t[:80]!r}")
-
-    print("\n=== FULL PAGE TEXT (first 3000 chars) ===")
-    body = page.inner_text("body")
-    print(body[:3000])
+        print("No Weiter button clickable")
 
     browser.close()
