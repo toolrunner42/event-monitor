@@ -79,8 +79,6 @@ def extract_text(html: str, site_type: str) -> str:
                     options.append(f"datum:{val}")
                 elif any(k in text_lower for k in shift_keywords):
                     options.append(o.get_text(strip=True))
-        if all_vals:
-            print(f"    DEBUG option-values: {all_vals[:8]}")
         return " | ".join(filter(None, options))
 
     else:
