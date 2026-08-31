@@ -15,6 +15,14 @@ NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
 
 WIESN_DATES = {"2026-09-19", "2026-09-25", "2026-09-26", "2026-10-02", "2026-10-03"}
 
+DATE_LABELS = {
+    "2026-09-19": "Sa 19.09 Anstich",
+    "2026-09-25": "Fr 25.09",
+    "2026-09-26": "Sa 26.09",
+    "2026-10-02": "Fr 02.10",
+    "2026-10-03": "Sa 03.10",
+}
+
 
 def load_state() -> dict:
     if STATE_FILE.exists():
@@ -43,6 +51,26 @@ def fetch_page(url: str) -> Optional[str]:
         return None
 
 
+def fetch_portal_page(browser, url: str) -> Optional[str]:
+    """Playwright fetch fuer JS-gerendernte Festzelt-OS Portale."""
+    try:
+        page = browser.new_page()
+        page.set_extra_http_headers({"Accept-Language": "de-DE,de;q=0.9"})
+        page.goto(url, wait_until="networkidle", timeout=30000)
+        # Warte kurz bis Livewire fertig initialisiert ist
+        page.wait_for_timeout(2000)
+        html = page.content()
+        page.close()
+        return html
+    except Exception as e:
+        print(f"  Playwright-Fehler {url}: {e}")
+        try:
+            page.close()
+        except Exception:
+            pass
+        return None
+
+
 def extract_text(html: str, site_type: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "meta", "link", "noscript"]):
@@ -54,8 +82,8 @@ def extract_text(html: str, site_type: str) -> str:
         return " | ".join(filter(None, bold + tables))
 
     elif site_type == "portal":
-        # Track welche Wiesn-Daten im Dropdown verfuegbar sind (Seite 1)
-        # + Schicht-Keywords falls ein Portal die schon auf Seite 1 zeigt (Seite 2 unzugaenglich)
+        # Extrahiere welche Wiesn-Daten im Dropdown verfuegbar sind
+        # Playwright liefert gerenderte HTML, Dates sind als <option value="2026-09-xx"> sichtbar
         shift_keywords = ["mittag", "abend", "evening", "lunch", "session",
                           "frühschoppen", "fruehschoppen", "17:", "18:", "19:", "20:"]
         options = []
@@ -74,10 +102,6 @@ def extract_text(html: str, site_type: str) -> str:
 
 
 def detect_kontingent_announcement(text: str) -> Optional[str]:
-    """
-    Erkennt ob ein Datum + Uhrzeit fuer Muenchner Kontingent angekuendigt wurde.
-    Gibt den gefundenen Hinweis zurueck, sonst None.
-    """
     kontingent_keywords = [
         "kontingent", "muenchner", "münchen", "einheimische",
         "reservierung ab", "ab sofort", "freigabe", "ab dem"
@@ -86,13 +110,11 @@ def detect_kontingent_announcement(text: str) -> Optional[str]:
     if not has_kontingent:
         return None
 
-    # Datum gefunden? (z.B. "25. Juli", "25. Juli 2026", "25.07.2026")
     date_pattern = re.search(
         r"(\d{1,2}\.\s*(?:januar|februar|märz|april|mai|juni|juli|august|september|oktober|november|dezember)(?:\s*202[6789])?"
         r"|\d{1,2}\.\d{1,2}\.202[6789])",
         text, re.IGNORECASE
     )
-    # Uhrzeit gefunden? (z.B. "10:00 Uhr", "ab 11 Uhr")
     time_pattern = re.search(r"\d{1,2}[:.]\d{2}\s*Uhr|\bab\s+\d{1,2}\s*Uhr", text, re.IGNORECASE)
 
     if date_pattern and time_pattern:
@@ -134,89 +156,92 @@ def notify(title: str, message: str, url: str = "", priority: str = "high"):
 
 
 def main():
+    from playwright.sync_api import sync_playwright
+
     config = load_config()
     state = load_state()
     state_changed = False
 
     print(f"Pruefe {len(config['sites'])} Seiten ...")
 
-    for site in config["sites"]:
-        key = site["key"]
-        name = site["name"]
-        url = site["url"]
-        site_type = site.get("type", "generic")
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
 
-        print(f"  {name} ...")
-        html = fetch_page(url)
-        if not html:
-            continue
+        for site in config["sites"]:
+            key = site["key"]
+            name = site["name"]
+            url = site["url"]
+            site_type = site.get("type", "generic")
 
-        text = extract_text(html, site_type)
-        current_hash = hashlib.md5(text.encode()).hexdigest()
-        previous_hash = state.get(key)
+            print(f"  {name} ...")
 
-        if previous_hash is None:
-            print(f"    Baseline gespeichert")
+            if site_type == "portal":
+                html = fetch_portal_page(browser, url)
+            else:
+                html = fetch_page(url)
+
+            if not html:
+                continue
+
+            text = extract_text(html, site_type)
+            current_hash = hashlib.md5(text.encode()).hexdigest()
+            previous_hash = state.get(key)
+
+            if previous_hash is None:
+                print(f"    Baseline gespeichert ({len(text)} Zeichen)")
+                state[key] = current_hash
+                state[f"{key}_text"] = text
+                state_changed = True
+                continue
+
+            if current_hash == previous_hash:
+                print(f"    Keine Aenderung")
+                continue
+
+            print(f"    AENDERUNG erkannt!")
+
+            old_text = state.get(f"{key}_text", "")
             state[key] = current_hash
+            state[f"{key}_text"] = text
             state_changed = True
-            continue
 
-        if current_hash == previous_hash:
-            print(f"    Keine Aenderung")
-            continue
-
-        print(f"    AENDERUNG erkannt!")
-
-        old_text = state.get(f"{key}_text", "")
-        state[key] = current_hash
-        state[f"{key}_text"] = text
-        state_changed = True
-
-        # Muenchner Kontingent: Datum + Uhrzeit angekuendigt?
-        kontingent_info = detect_kontingent_announcement(text)
-        if kontingent_info and site.get("kontingent"):
-            notify(
-                title=f"KONTINGENT: {name}",
-                message=f"Datum + Uhrzeit angekuendigt: {kontingent_info}\nJetzt vormerken!",
-                url=url,
-                priority="urgent",
-            )
-        elif site_type == "portal":
-            # Welche Wiesn-Daten sind neu hinzugekommen?
-            old_dates = set(re.findall(r"datum:(\S+)", old_text))
-            new_dates = set(re.findall(r"datum:(\S+)", text))
-            added = new_dates - old_dates
-            removed = old_dates - new_dates
-            date_labels = {
-                "2026-09-19": "Sa 19.09 Anstich",
-                "2026-09-25": "Fr 25.09",
-                "2026-09-26": "Sa 26.09",
-                "2026-10-02": "Fr 02.10",
-                "2026-10-03": "Sa 03.10",
-            }
-            if added:
-                added_str = ", ".join(date_labels.get(d, d) for d in sorted(added))
+            kontingent_info = detect_kontingent_announcement(text)
+            if kontingent_info and site.get("kontingent"):
                 notify(
-                    title=f"NEU: {name}",
-                    message=f"Neues Datum verfuegbar: {added_str}\nJetzt buchen!",
+                    title=f"KONTINGENT: {name}",
+                    message=f"Datum + Uhrzeit angekuendigt: {kontingent_info}\nJetzt vormerken!",
                     url=url,
                     priority="urgent",
                 )
+            elif site_type == "portal":
+                old_dates = set(re.findall(r"datum:(\S+)", old_text))
+                new_dates = set(re.findall(r"datum:(\S+)", text))
+                added = new_dates - old_dates
+                if added:
+                    added_str = ", ".join(DATE_LABELS.get(d, d) for d in sorted(added))
+                    notify(
+                        title=f"NEU: {name}",
+                        message=f"Neues Datum verfuegbar: {added_str}\nJetzt buchen!",
+                        url=url,
+                        priority="urgent",
+                    )
+                else:
+                    notify(
+                        title=f"Aenderung: {name}",
+                        message=f"Seite hat sich geaendert\nJetzt pruefen!",
+                        url=url,
+                        priority="high",
+                    )
             else:
+                shift_hint = detect_good_shift(text)
                 notify(
                     title=f"Aenderung: {name}",
-                    message=f"Seite hat sich geaendert\nJetzt pruefen!",
+                    message=f"Seite hat sich geaendert{shift_hint}\nJetzt pruefen!",
                     url=url,
                     priority="high",
                 )
-        else:
-            shift_hint = detect_good_shift(text)
-            notify(
-                title=f"Aenderung: {name}",
-                message=f"Seite hat sich geaendert{shift_hint}\nJetzt pruefen!",
-                url=url,
-                priority="high",
-            )
+
+        browser.close()
 
     if state_changed:
         save_state(state)
