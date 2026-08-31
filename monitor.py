@@ -13,26 +13,7 @@ STATE_FILE = Path(__file__).parent / "state.json"
 CONFIG_FILE = Path(__file__).parent / "config.json"
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
 
-WIESN_DATES = {
-    "2026-09-19": {"label": "Sa 19.09 Anstich", "day_type": "sa"},
-    "2026-09-25": {"label": "Fr 25.09", "day_type": "fr"},
-    "2026-09-26": {"label": "Sa 26.09", "day_type": "sa"},
-    "2026-10-02": {"label": "Fr 02.10", "day_type": "fr"},
-    "2026-10-03": {"label": "Sa 03.10", "day_type": "sa"},
-}
-
-ABEND_KEYWORDS = ["abend", "dinner", "evening", "abendsitzung", "abendtisch"]
-NACHMITTAG_KEYWORDS = ["nachmittag", "afternoon", "nachmittagsschicht"]
-MITTAG_ONLY_KEYWORDS = ["mittag", "lunch", "mittagstisch", "mittagsschicht"]
-
-
-def slot_is_relevant(slot_text: str, day_type: str) -> bool:
-    s = slot_text.lower()
-    if any(k in s for k in ABEND_KEYWORDS):
-        return True
-    if day_type == "sa" and any(k in s for k in NACHMITTAG_KEYWORDS):
-        return True
-    return False
+WIESN_DATES = {"2026-09-19", "2026-09-25", "2026-09-26", "2026-10-02", "2026-10-03"}
 
 
 def load_state() -> dict:
@@ -49,7 +30,7 @@ def load_config() -> dict:
     return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
 
 
-def fetch_with_requests(url: str) -> Optional[str]:
+def fetch_page(url: str) -> Optional[str]:
     try:
         r = requests.get(url, headers={
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
@@ -62,186 +43,7 @@ def fetch_with_requests(url: str) -> Optional[str]:
         return None
 
 
-def fetch_portal_data(url: str) -> dict:
-    """
-    Returns:
-      {
-        "nav": str,               # nav/tab text for kontingent-tab detection
-        "slots": {                # per date: list of session texts
-          "2026-09-25": ["Abendschicht", ...],
-          ...
-        }
-      }
-    """
-    result = {"nav": "", "slots": {}}
-    try:
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                locale="de-DE",
-            )
-            page = context.new_page()
-            page.goto(url, wait_until="networkidle", timeout=30000)
-            page.wait_for_timeout(2000)
-
-            # Nav text for kontingent-tab detection
-            nav_parts = []
-            for el in page.query_selector_all("a, button, li, nav"):
-                t = el.inner_text().strip()
-                if t:
-                    nav_parts.append(t)
-            result["nav"] = " ".join(nav_parts)[:800]
-
-            # Find the date select
-            date_select = None
-            for sel in page.query_selector_all("select"):
-                for opt in sel.query_selector_all("option"):
-                    val = (opt.get_attribute("value") or "").strip()
-                    if re.match(r"^\d{4}-\d{2}-\d{2}$", val):
-                        date_select = sel
-                        break
-                if date_select:
-                    break
-
-            if not date_select:
-                browser.close()
-                return result
-
-            # Get available target dates
-            available_dates = []
-            for opt in date_select.query_selector_all("option"):
-                val = (opt.get_attribute("value") or "").strip()
-                if re.match(r"^\d{4}-\d{2}-\d{2}$", val) and val in WIESN_DATES:
-                    available_dates.append(val)
-
-            # For each target date: reload page, select date, click Weiter, read sessions
-            for date_val in available_dates:
-                # Reload for each date to start from step 1 every time
-                page.goto(url, wait_until="networkidle", timeout=30000)
-                page.wait_for_timeout(1500)
-
-                # Re-find date select after reload
-                ds = None
-                for sel in page.query_selector_all("select"):
-                    for opt in sel.query_selector_all("option"):
-                        val = (opt.get_attribute("value") or "").strip()
-                        if re.match(r"^\d{4}-\d{2}-\d{2}$", val):
-                            ds = sel
-                            break
-                    if ds:
-                        break
-
-                if not ds:
-                    result["slots"][date_val] = []
-                    continue
-
-                ds.select_option(date_val)
-                page.wait_for_timeout(1500)
-
-                # Click "Weiter" / "Next" to get to step 2 (session selection)
-                weiter = None
-                for label in ["Weiter", "Next", "Continuer", "Volgende"]:
-                    try:
-                        weiter = page.locator(f"button:has-text('{label}')").first
-                        if weiter.is_visible():
-                            break
-                        weiter = None
-                    except Exception:
-                        weiter = None
-
-                if weiter:
-                    weiter.click()
-                    page.wait_for_timeout(2500)
-                else:
-                    page.wait_for_timeout(1500)
-
-                slots = []
-
-                # 1. Secondary selects (not the date select)
-                for sel in page.query_selector_all("select"):
-                    has_iso = any(
-                        re.match(r"^\d{4}-\d{2}-\d{2}$", (o.get_attribute("value") or "").strip())
-                        for o in sel.query_selector_all("option")
-                    )
-                    if has_iso:
-                        continue
-                    for opt in sel.query_selector_all("option"):
-                        t = opt.inner_text().strip()
-                        if t and t.lower() not in ("", "bitte wählen", "please select", "-"):
-                            slots.append(t)
-
-                # 2. Radio buttons with labels
-                for inp in page.query_selector_all("input[type='radio']"):
-                    inp_id = inp.get_attribute("id")
-                    if inp_id:
-                        lbl = page.query_selector(f"label[for='{inp_id}']")
-                        if lbl:
-                            t = lbl.inner_text().strip()
-                            if t:
-                                slots.append(t)
-
-                # 3. Fallback: scan visible text for session keywords
-                if not slots:
-                    try:
-                        body_text = page.inner_text("body")
-                        for line in body_text.split("\n"):
-                            line = line.strip()
-                            if any(k in line.lower() for k in
-                                   ["abend", "nachmittag", "schicht", "session",
-                                    "mittag", "dinner", "frueh", "frühshoppen"]):
-                                if 3 < len(line) < 150:
-                                    slots.append(line)
-                    except Exception:
-                        pass
-
-                result["slots"][date_val] = slots
-                print(f"    {date_val}: {slots[:5]}")
-
-            browser.close()
-    except Exception as e:
-        print(f"  Playwright Fehler {url}: {e}")
-    return result
-
-
-def find_new_relevant_slots(old_data: dict, new_data: dict) -> list:
-    """Returns list of alert strings for newly available relevant slots."""
-    alerts = []
-    old_slots_map = old_data.get("slots", {})
-    new_slots_map = new_data.get("slots", {})
-
-    for date_key, info in WIESN_DATES.items():
-        label = info["label"]
-        day_type = info["day_type"]
-
-        new_slots = set(new_slots_map.get(date_key, []))
-        old_slots = set(old_slots_map.get(date_key, []))
-
-        if not new_slots and date_key not in new_slots_map:
-            continue  # date not in portal at all
-
-        date_is_new = date_key not in old_slots_map
-
-        if date_is_new:
-            relevant = [s for s in new_slots if slot_is_relevant(s, day_type)]
-            if relevant:
-                alerts.append(f"{label}: {', '.join(relevant)}")
-            elif not new_slots:
-                # Date appeared but couldn't read sessions -- alert so Sara can check
-                alerts.append(f"{label}: Datum verfuegbar (Schichten pruefen!)")
-            # If only irrelevant slots (e.g. Mittag only): store but no alert
-        else:
-            # Date already known: alert only on NEW relevant slots
-            added = new_slots - old_slots
-            new_relevant = [s for s in added if slot_is_relevant(s, day_type)]
-            if new_relevant:
-                alerts.append(f"{label}: Neue Schicht: {', '.join(new_relevant)}")
-
-    return alerts
-
-
-def extract_kontingent_text(html: str, site_type: str) -> str:
+def extract_text(html: str, site_type: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "meta", "link", "noscript"]):
         tag.decompose()
@@ -250,27 +52,48 @@ def extract_kontingent_text(html: str, site_type: str) -> str:
         bold = [b.get_text(strip=True) for b in soup.find_all(["strong", "b"])]
         tables = [td.get_text(strip=True) for td in soup.find_all(["td", "th"])]
         return " | ".join(filter(None, bold + tables))
+
+    elif site_type == "portal":
+        # Track welche Wiesn-Daten im Dropdown verfuegbar sind (Seite 1)
+        # + Schicht-Keywords falls ein Portal die schon auf Seite 1 zeigt (Seite 2 unzugaenglich)
+        shift_keywords = ["mittag", "abend", "evening", "lunch", "session",
+                          "frühschoppen", "fruehschoppen", "17:", "18:", "19:", "20:"]
+        options = []
+        for sel in soup.find_all("select"):
+            for o in sel.find_all("option"):
+                val = o.get("value", "").strip()
+                text_lower = o.get_text(strip=True).lower()
+                if val in WIESN_DATES:
+                    options.append(f"datum:{val}")
+                elif any(k in text_lower for k in shift_keywords):
+                    options.append(o.get_text(strip=True))
+        return " | ".join(filter(None, options))
+
     else:
         return soup.get_text(separator=" ", strip=True)[:8000]
 
 
 def detect_kontingent_announcement(text: str) -> Optional[str]:
+    """
+    Erkennt ob ein Datum + Uhrzeit fuer Muenchner Kontingent angekuendigt wurde.
+    Gibt den gefundenen Hinweis zurueck, sonst None.
+    """
     kontingent_keywords = [
         "kontingent", "muenchner", "münchen", "einheimische",
         "reservierung ab", "ab sofort", "freigabe", "ab dem"
     ]
-    if not any(k in text.lower() for k in kontingent_keywords):
+    has_kontingent = any(k in text.lower() for k in kontingent_keywords)
+    if not has_kontingent:
         return None
 
+    # Datum gefunden? (z.B. "25. Juli", "25. Juli 2026", "25.07.2026")
     date_pattern = re.search(
-        r"(\d{1,2}\.\s*(?:januar|februar|märz|april|mai|juni|juli|august|september|oktober)"
+        r"(\d{1,2}\.\s*(?:januar|februar|märz|april|mai|juni|juli|august|september|oktober|november|dezember)(?:\s*202[6789])?"
         r"|\d{1,2}\.\d{1,2}\.202[6789])",
         text, re.IGNORECASE
     )
-    time_pattern = re.search(
-        r"\d{1,2}[:.]\d{2}\s*Uhr|\bab\s+\d{1,2}\s*Uhr",
-        text, re.IGNORECASE
-    )
+    # Uhrzeit gefunden? (z.B. "10:00 Uhr", "ab 11 Uhr")
+    time_pattern = re.search(r"\d{1,2}[:.]\d{2}\s*Uhr|\bab\s+\d{1,2}\s*Uhr", text, re.IGNORECASE)
 
     if date_pattern and time_pattern:
         return f"{date_pattern.group(0).strip()} um {time_pattern.group(0).strip()}"
@@ -279,29 +102,14 @@ def detect_kontingent_announcement(text: str) -> Optional[str]:
     return None
 
 
-def detect_kontingent_tab(new_nav: str, old_nav: str = "") -> bool:
-    # Broad: alert if any word containing "münch" appears that wasn't in the old nav
-    new_lower = new_nav.lower()
-    old_lower = old_nav.lower()
-
-    # Check for newly appearing "münch" fragments (catches any spelling variant)
-    import re as _re
-    new_munch_words = set(_re.findall(r'\S*m[uü][e]?nch\S*', new_lower))
-    old_munch_words = set(_re.findall(r'\S*m[uü][e]?nch\S*', old_lower))
-    if new_munch_words - old_munch_words:
-        return True
-
-    # Also check fixed keywords that should trigger even if somehow already present
-    hard_keywords = [
-        "einheimische", "einheimischer",
-        "stadtticket", "locals only",
-        "muc kontingent", "muc reservierung",
-        "echte münchener", "echte münchner",
-        "echte muenchener", "echte muenchner",
-    ]
-    new_hard = [k for k in hard_keywords if k in new_lower]
-    old_hard = [k for k in hard_keywords if k in old_lower]
-    return bool(set(new_hard) - set(old_hard))
+def detect_good_shift(text: str) -> str:
+    days = ["Freitag", "Fr.", "Samstag", "Sa."]
+    times = ["15:", "16:", "17:", "18:", "19:", "20:", "21:", "22:"]
+    if any(d in text for d in days) and any(t in text for t in times):
+        return " -- Fr/Sa Abend erkannt!"
+    elif any(d in text for d in days):
+        return " -- Fr/Sa Termin erkannt"
+    return ""
 
 
 def notify(title: str, message: str, url: str = "", priority: str = "high"):
@@ -320,7 +128,7 @@ def notify(title: str, message: str, url: str = "", priority: str = "high"):
             },
             timeout=10,
         )
-        print(f"  Notification gesendet: {title}")
+        print(f"  Notification: {title}")
     except Exception as e:
         print(f"  Notification-Fehler: {e}")
 
@@ -334,105 +142,86 @@ def main():
 
     for site in config["sites"]:
         key = site["key"]
-        name = site.get("name", key)
+        name = site["name"]
         url = site["url"]
         site_type = site.get("type", "generic")
 
-        print(f"\n  {name} ...")
+        print(f"  {name} ...")
+        html = fetch_page(url)
+        if not html:
+            continue
 
-        if site_type == "portal":
-            portal_data = fetch_portal_data(url)
-            data_json = json.dumps(portal_data, sort_keys=True, ensure_ascii=False)
-            current_hash = hashlib.md5(data_json.encode()).hexdigest()
-            previous_hash = state.get(key)
-            previous_data = state.get(f"{key}_data", {})
+        text = extract_text(html, site_type)
+        current_hash = hashlib.md5(text.encode()).hexdigest()
+        previous_hash = state.get(key)
 
-            if previous_hash is None:
-                print(f"    Baseline gespeichert")
-                # Log what's already available
-                for date_key, slots in portal_data.get("slots", {}).items():
-                    info = WIESN_DATES[date_key]
-                    relevant = [s for s in slots if slot_is_relevant(s, info["day_type"])]
-                    print(f"    {info['label']}: {slots} (relevant: {relevant})")
-                state[key] = current_hash
-                state[f"{key}_data"] = portal_data
-                state_changed = True
-                continue
+        if previous_hash is None:
+            print(f"    Baseline gespeichert")
+            state[key] = current_hash
+            state_changed = True
+            continue
 
-            if current_hash == previous_hash:
-                print(f"    Keine Aenderung")
-                continue
+        if current_hash == previous_hash:
+            print(f"    Keine Aenderung")
+            continue
 
-            print(f"    AENDERUNG erkannt!")
-            alerts = find_new_relevant_slots(previous_data, portal_data)
-            if alerts:
+        print(f"    AENDERUNG erkannt!")
+
+        old_text = state.get(f"{key}_text", "")
+        state[key] = current_hash
+        state[f"{key}_text"] = text
+        state_changed = True
+
+        # Muenchner Kontingent: Datum + Uhrzeit angekuendigt?
+        kontingent_info = detect_kontingent_announcement(text)
+        if kontingent_info and site.get("kontingent"):
+            notify(
+                title=f"KONTINGENT: {name}",
+                message=f"Datum + Uhrzeit angekuendigt: {kontingent_info}\nJetzt vormerken!",
+                url=url,
+                priority="urgent",
+            )
+        elif site_type == "portal":
+            # Welche Wiesn-Daten sind neu hinzugekommen?
+            old_dates = set(re.findall(r"datum:(\S+)", old_text))
+            new_dates = set(re.findall(r"datum:(\S+)", text))
+            added = new_dates - old_dates
+            removed = old_dates - new_dates
+            date_labels = {
+                "2026-09-19": "Sa 19.09 Anstich",
+                "2026-09-25": "Fr 25.09",
+                "2026-09-26": "Sa 26.09",
+                "2026-10-02": "Fr 02.10",
+                "2026-10-03": "Sa 03.10",
+            }
+            if added:
+                added_str = ", ".join(date_labels.get(d, d) for d in sorted(added))
                 notify(
-                    title=f"WIESN SLOT: {name}",
-                    message="\n".join(alerts) + "\n\nSofort buchen!",
-                    url=url,
-                    priority="urgent",
-                )
-            elif detect_kontingent_tab(portal_data.get("nav", ""), previous_data.get("nav", "")):
-                notify(
-                    title=f"KONTINGENT TAB: {name}",
-                    message="Muenchner Kontingent Tab ist jetzt sichtbar!\nSofort pruefen!",
+                    title=f"NEU: {name}",
+                    message=f"Neues Datum verfuegbar: {added_str}\nJetzt buchen!",
                     url=url,
                     priority="urgent",
                 )
             else:
-                print(f"    Kein relevanter Slot, kein Alert")
-
-            state[key] = current_hash
-            state[f"{key}_data"] = portal_data
-            state_changed = True
-
+                notify(
+                    title=f"Aenderung: {name}",
+                    message=f"Seite hat sich geaendert\nJetzt pruefen!",
+                    url=url,
+                    priority="high",
+                )
         else:
-            # Kontingent info pages: alert on any change
-            html = fetch_with_requests(url)
-            if not html:
-                continue
-
-            text = extract_kontingent_text(html, site_type)
-            current_hash = hashlib.md5(text.encode()).hexdigest()
-            previous_hash = state.get(key)
-
-            if previous_hash is None:
-                print(f"    Baseline gespeichert")
-                state[key] = current_hash
-                state[f"{key}_text"] = text
-                state_changed = True
-                continue
-
-            if current_hash == previous_hash:
-                print(f"    Keine Aenderung")
-                continue
-
-            print(f"    AENDERUNG erkannt!")
-            kontingent_info = detect_kontingent_announcement(text)
-            if site.get("kontingent"):
-                if kontingent_info:
-                    notify(
-                        title=f"KONTINGENT: {name}",
-                        message=f"Ankuendigung: {kontingent_info}\nJetzt vormerken!",
-                        url=url,
-                        priority="urgent",
-                    )
-                else:
-                    notify(
-                        title=f"Aenderung: {name}",
-                        message="Seite hat sich geaendert\nJetzt pruefen!",
-                        url=url,
-                        priority="high",
-                    )
-
-            state[key] = current_hash
-            state[f"{key}_text"] = text
-            state_changed = True
+            shift_hint = detect_good_shift(text)
+            notify(
+                title=f"Aenderung: {name}",
+                message=f"Seite hat sich geaendert{shift_hint}\nJetzt pruefen!",
+                url=url,
+                priority="high",
+            )
 
     if state_changed:
         save_state(state)
 
-    print("\nFertig.")
+    print("Fertig.")
 
 
 if __name__ == "__main__":
