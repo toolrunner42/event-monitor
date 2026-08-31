@@ -51,24 +51,6 @@ def fetch_page(url: str) -> Optional[str]:
         return None
 
 
-def fetch_portal_page(browser, url: str) -> Optional[str]:
-    """Playwright fetch fuer JS-gerendernte Festzelt-OS Portale."""
-    try:
-        page = browser.new_page()
-        page.set_extra_http_headers({"Accept-Language": "de-DE,de;q=0.9"})
-        page.goto(url, wait_until="networkidle", timeout=30000)
-        # Warte kurz bis Livewire fertig initialisiert ist
-        page.wait_for_timeout(2000)
-        html = page.content()
-        page.close()
-        return html
-    except Exception as e:
-        print(f"  Playwright-Fehler {url}: {e}")
-        try:
-            page.close()
-        except Exception:
-            pass
-        return None
 
 
 def extract_text(html: str, site_type: str) -> str:
@@ -82,19 +64,23 @@ def extract_text(html: str, site_type: str) -> str:
         return " | ".join(filter(None, bold + tables))
 
     elif site_type == "portal":
-        # Extrahiere welche Wiesn-Daten im Dropdown verfuegbar sind
-        # Playwright liefert gerenderte HTML, Dates sind als <option value="2026-09-xx"> sichtbar
+        # requests liefert SSR-HTML mit <option value="2026-09-xx"> (vor JS-Rendering)
+        # Playwright wuerde das Custom-Datepicker-Widget sehen (kein <select> mehr)
         shift_keywords = ["mittag", "abend", "evening", "lunch", "session",
                           "frühschoppen", "fruehschoppen", "17:", "18:", "19:", "20:"]
         options = []
+        all_vals = []
         for sel in soup.find_all("select"):
             for o in sel.find_all("option"):
                 val = o.get("value", "").strip()
+                all_vals.append(val)
                 text_lower = o.get_text(strip=True).lower()
                 if val in WIESN_DATES:
                     options.append(f"datum:{val}")
                 elif any(k in text_lower for k in shift_keywords):
                     options.append(o.get_text(strip=True))
+        if all_vals:
+            print(f"    DEBUG option-values: {all_vals[:8]}")
         return " | ".join(filter(None, options))
 
     else:
@@ -156,29 +142,20 @@ def notify(title: str, message: str, url: str = "", priority: str = "high"):
 
 
 def main():
-    from playwright.sync_api import sync_playwright
-
     config = load_config()
     state = load_state()
     state_changed = False
 
     print(f"Pruefe {len(config['sites'])} Seiten ...")
 
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
-
-        for site in config["sites"]:
+    for site in config["sites"]:
             key = site["key"]
             name = site["name"]
             url = site["url"]
             site_type = site.get("type", "generic")
 
             print(f"  {name} ...")
-
-            if site_type == "portal":
-                html = fetch_portal_page(browser, url)
-            else:
-                html = fetch_page(url)
+            html = fetch_page(url)
 
             if not html:
                 continue
@@ -240,8 +217,6 @@ def main():
                     url=url,
                     priority="high",
                 )
-
-        browser.close()
 
     if state_changed:
         save_state(state)
