@@ -64,21 +64,15 @@ def extract_text(html: str, site_type: str) -> str:
         return " | ".join(filter(None, bold + tables))
 
     elif site_type == "portal":
-        # requests liefert SSR-HTML mit <option value="2026-09-xx"> (vor JS-Rendering)
-        # Playwright wuerde das Custom-Datepicker-Widget sehen (kein <select> mehr)
-        shift_keywords = ["mittag", "abend", "evening", "lunch", "session",
-                          "frühschoppen", "fruehschoppen", "17:", "18:", "19:", "20:"]
+        # Nur die 5 Ziel-Daten per option-value tracken.
+        # Shift-Keywords absichtlich entfernt -- sie fangen dynamische Zeit-Selects
+        # auf der Seite ein und erzeugen konstante Hash-Aenderungen (false positives).
         options = []
-        all_vals = []
         for sel in soup.find_all("select"):
             for o in sel.find_all("option"):
                 val = o.get("value", "").strip()
-                all_vals.append(val)
-                text_lower = o.get_text(strip=True).lower()
                 if val in WIESN_DATES:
                     options.append(f"datum:{val}")
-                elif any(k in text_lower for k in shift_keywords):
-                    options.append(o.get_text(strip=True))
         return " | ".join(filter(None, options))
 
     else:
