@@ -1,4 +1,14 @@
 {
+  "target_dates": {
+    "2026-09-19": "Sa 19.09 Anstich"
+  },
+  "all_dates_reference": {
+    "2026-09-19": "Sa 19.09 Anstich",
+    "2026-09-25": "Fr 25.09",
+    "2026-09-26": "Sa 26.09",
+    "2026-10-02": "Fr 02.10",
+    "2026-10-03": "Sa 03.10"
+  },
   "sites": [
     {
       "key": "wiesnkini_muenchen",
