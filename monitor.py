@@ -13,15 +13,8 @@ STATE_FILE = Path(__file__).parent / "state.json"
 CONFIG_FILE = Path(__file__).parent / "config.json"
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
 
-WIESN_DATES = {"2026-09-19", "2026-09-25", "2026-09-26", "2026-10-02", "2026-10-03"}
-
-DATE_LABELS = {
-    "2026-09-19": "Sa 19.09 Anstich",
-    "2026-09-25": "Fr 25.09",
-    "2026-09-26": "Sa 26.09",
-    "2026-10-02": "Fr 02.10",
-    "2026-10-03": "Sa 03.10",
-}
+WIESN_DATES: set = set()
+DATE_LABELS: dict = {}
 
 
 def load_state() -> dict:
@@ -134,7 +127,10 @@ def notify(title: str, message: str, url: str = "", priority: str = "high"):
 
 
 def main():
+    global WIESN_DATES, DATE_LABELS
     config = load_config()
+    DATE_LABELS = config.get("target_dates", {})
+    WIESN_DATES = set(DATE_LABELS.keys())
     state = load_state()
     state_changed = False
 
