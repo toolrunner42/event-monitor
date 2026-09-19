@@ -45,10 +45,25 @@ def fetch_page(url: str) -> Optional[str]:
 
 def check_portal_sessions(url: str) -> dict:
     """
-    Playwright: laedt Portal, waehlt jedes Ziel-Datum und hasht den Seite-2-Inhalt.
-    Gibt {date: hash_string} zurueck. Leerer Hash = Datum nicht im Dropdown.
+    Hybrid: requests fuer Datum-Erkennung (SSR), Playwright fuer Session-Check (Seite 2).
+    Gibt {date: True/False} zurueck. Nur Daten die im SSR-Dropdown vorhanden sind.
     """
     from playwright.sync_api import sync_playwright
+
+    # SSR: welche Ziel-Daten sind im Dropdown?
+    html = fetch_page(url)
+    if not html:
+        return {}
+    soup = BeautifulSoup(html, "html.parser")
+    available = []
+    for sel in soup.find_all("select"):
+        for o in sel.find_all("option"):
+            val = o.get("value", "").strip()
+            if val in WIESN_DATES:
+                available.append(val)
+
+    if not available:
+        return {}
 
     results = {}
     try:
@@ -58,17 +73,6 @@ def check_portal_sessions(url: str) -> dict:
             page.set_extra_http_headers({"Accept-Language": "de-DE,de;q=0.9"})
             page.goto(url, wait_until="networkidle", timeout=30000)
             page.wait_for_timeout(1500)
-
-            available = page.evaluate("""
-                () => {
-                    const dates = """ + json.dumps(list(WIESN_DATES)) + """;
-                    const found = [];
-                    document.querySelectorAll('select option').forEach(o => {
-                        if (dates.includes(o.value)) found.push(o.value);
-                    });
-                    return found;
-                }
-            """)
 
             for date in available:
                 try:
