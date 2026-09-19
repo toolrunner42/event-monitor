@@ -16,9 +16,6 @@ NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
 WIESN_DATES: set = set()
 DATE_LABELS: dict = {}
 
-ABEND_KEYWORDS = ["abend", "abendschicht", "abendsitzung", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00"]
-
-
 def load_state() -> dict:
     if STATE_FILE.exists():
         return json.loads(STATE_FILE.read_text(encoding="utf-8"))
@@ -48,8 +45,8 @@ def fetch_page(url: str) -> Optional[str]:
 
 def check_portal_sessions(url: str) -> dict:
     """
-    Playwright: laedt Portal, prueft fuer jedes Ziel-Datum ob Abendschicht verfuegbar.
-    Gibt {date: True/False/None} zurueck (None = Datum nicht im Dropdown).
+    Playwright: laedt Portal, waehlt jedes Ziel-Datum und hasht den Seite-2-Inhalt.
+    Gibt {date: hash_string} zurueck. Leerer Hash = Datum nicht im Dropdown.
     """
     from playwright.sync_api import sync_playwright
 
@@ -62,7 +59,6 @@ def check_portal_sessions(url: str) -> dict:
             page.goto(url, wait_until="networkidle", timeout=30000)
             page.wait_for_timeout(1500)
 
-            # Welche Ziel-Daten sind im Dropdown?
             available = page.evaluate("""
                 () => {
                     const dates = """ + json.dumps(list(WIESN_DATES)) + """;
@@ -76,7 +72,6 @@ def check_portal_sessions(url: str) -> dict:
 
             for date in available:
                 try:
-                    # Datum per JS setzen und Livewire-Event ausloesen
                     page.evaluate(f"""
                         () => {{
                             const selects = document.querySelectorAll('select');
@@ -95,19 +90,19 @@ def check_portal_sessions(url: str) -> dict:
                     page.wait_for_timeout(3000)
                     page.wait_for_load_state("networkidle", timeout=10000)
 
-                    content = page.content()
-                    text = content.lower()
-                    has_abend = any(k in text for k in ABEND_KEYWORDS)
+                    soup = BeautifulSoup(page.content(), "html.parser")
+                    for tag in soup(["script", "style", "meta", "link", "noscript"]):
+                        tag.decompose()
+                    text = soup.get_text(separator=" ", strip=True)
+                    has_abend = "abend" in text.lower()
                     results[date] = has_abend
-                    print(f"    {date}: {'Abend verfuegbar' if has_abend else 'kein Abend'}")
+                    print(f"    {date}: {'Abend verfuegbar' if has_abend else 'kein Abend (nur Morgen/Mittag)'}")
 
-                    # Seite neu laden fuer naechstes Datum
                     page.goto(url, wait_until="networkidle", timeout=30000)
                     page.wait_for_timeout(1500)
 
                 except Exception as e:
-                    print(f"    {date}: Fehler beim Session-Check: {e}")
-                    results[date] = None
+                    print(f"    {date}: Fehler: {e}")
 
             browser.close()
     except Exception as e:
@@ -203,37 +198,35 @@ def main():
         print(f"  {name} ...")
 
         if site_type == "portal":
-            # Playwright: pruefe Abend-Sessions pro Datum
-            sessions = check_portal_sessions(url)
-            if not sessions:
+            session_results = check_portal_sessions(url)
+            if not session_results:
                 print(f"    Keine Ziel-Daten im Dropdown")
                 continue
 
-            session_state_key = f"{key}_sessions"
-            old_sessions = state.get(session_state_key, {})
-            new_sessions = {d: v for d, v in sessions.items() if v is not None}
-
-            if new_sessions != old_sessions:
-                state[session_state_key] = {**old_sessions, **new_sessions}
+            newly_available = []
+            for date, has_abend in session_results.items():
+                state_key = f"{key}_{date}"
+                was_available = state.get(state_key)
+                state[state_key] = has_abend
                 state_changed = True
-
-                # Welche Daten haben jetzt Abend, hatten es vorher nicht?
-                newly_abend = [
-                    d for d, has_abend in new_sessions.items()
-                    if has_abend and not old_sessions.get(d, False)
-                ]
-                if newly_abend:
-                    labels = ", ".join(DATE_LABELS.get(d, d) for d in sorted(newly_abend))
-                    notify(
-                        title=f"ABEND: {name}",
-                        message=f"Abendschicht neu verfuegbar: {labels}\nJetzt buchen!",
-                        url=url,
-                        priority="urgent",
-                    )
+                if was_available is None:
+                    print(f"    {date}: Baseline ({'Abend' if has_abend else 'kein Abend'})")
+                elif not was_available and has_abend:
+                    print(f"    {date}: NEU Abend verfuegbar!")
+                    newly_available.append(date)
+                elif was_available and not has_abend:
+                    print(f"    {date}: Abend nicht mehr verfuegbar")
                 else:
-                    print(f"    Session-Status geaendert (kein neues Abend)")
-            else:
-                print(f"    Keine Aenderung")
+                    print(f"    {date}: Keine Aenderung ({'Abend' if has_abend else 'kein Abend'})")
+
+            if newly_available:
+                labels = ", ".join(DATE_LABELS.get(d, d) for d in sorted(newly_available))
+                notify(
+                    title=f"ABEND frei: {name}",
+                    message=f"Abendschicht verfuegbar: {labels}\nJetzt buchen!",
+                    url=url,
+                    priority="urgent",
+                )
             continue
 
         # Nicht-Portal: Hash-basiert
