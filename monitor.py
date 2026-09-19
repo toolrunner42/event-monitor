@@ -16,6 +16,8 @@ NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
 WIESN_DATES: set = set()
 DATE_LABELS: dict = {}
 
+ABEND_KEYWORDS = ["abend", "abendschicht", "abendsitzung", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00"]
+
 
 def load_state() -> dict:
     if STATE_FILE.exists():
@@ -44,6 +46,74 @@ def fetch_page(url: str) -> Optional[str]:
         return None
 
 
+def check_portal_sessions(url: str) -> dict:
+    """
+    Playwright: laedt Portal, prueft fuer jedes Ziel-Datum ob Abendschicht verfuegbar.
+    Gibt {date: True/False/None} zurueck (None = Datum nicht im Dropdown).
+    """
+    from playwright.sync_api import sync_playwright
+
+    results = {}
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.set_extra_http_headers({"Accept-Language": "de-DE,de;q=0.9"})
+            page.goto(url, wait_until="networkidle", timeout=30000)
+            page.wait_for_timeout(1500)
+
+            # Welche Ziel-Daten sind im Dropdown?
+            available = page.evaluate("""
+                () => {
+                    const dates = """ + json.dumps(list(WIESN_DATES)) + """;
+                    const found = [];
+                    document.querySelectorAll('select option').forEach(o => {
+                        if (dates.includes(o.value)) found.push(o.value);
+                    });
+                    return found;
+                }
+            """)
+
+            for date in available:
+                try:
+                    # Datum per JS setzen und Livewire-Event ausloesen
+                    page.evaluate(f"""
+                        () => {{
+                            const selects = document.querySelectorAll('select');
+                            for (const sel of selects) {{
+                                for (const opt of sel.options) {{
+                                    if (opt.value === '{date}') {{
+                                        sel.value = '{date}';
+                                        sel.dispatchEvent(new Event('input', {{bubbles: true}}));
+                                        sel.dispatchEvent(new Event('change', {{bubbles: true}}));
+                                        break;
+                                    }}
+                                }}
+                            }}
+                        }}
+                    """)
+                    page.wait_for_timeout(3000)
+                    page.wait_for_load_state("networkidle", timeout=10000)
+
+                    content = page.content()
+                    text = content.lower()
+                    has_abend = any(k in text for k in ABEND_KEYWORDS)
+                    results[date] = has_abend
+                    print(f"    {date}: {'Abend verfuegbar' if has_abend else 'kein Abend'}")
+
+                    # Seite neu laden fuer naechstes Datum
+                    page.goto(url, wait_until="networkidle", timeout=30000)
+                    page.wait_for_timeout(1500)
+
+                except Exception as e:
+                    print(f"    {date}: Fehler beim Session-Check: {e}")
+                    results[date] = None
+
+            browser.close()
+    except Exception as e:
+        print(f"  Playwright-Fehler: {e}")
+
+    return results
 
 
 def extract_text(html: str, site_type: str) -> str:
@@ -57,9 +127,7 @@ def extract_text(html: str, site_type: str) -> str:
         return " | ".join(filter(None, bold + tables))
 
     elif site_type == "portal":
-        # Nur die 5 Ziel-Daten per option-value tracken.
-        # Shift-Keywords absichtlich entfernt -- sie fangen dynamische Zeit-Selects
-        # auf der Seite ein und erzeugen konstante Hash-Aenderungen (false positives).
+        # Nur die Ziel-Daten per option-value aus dem SSR-HTML extrahieren
         options = []
         for sel in soup.find_all("select"):
             for o in sel.find_all("option"):
@@ -95,16 +163,6 @@ def detect_kontingent_announcement(text: str) -> Optional[str]:
     return None
 
 
-def detect_good_shift(text: str) -> str:
-    days = ["Freitag", "Fr.", "Samstag", "Sa."]
-    times = ["15:", "16:", "17:", "18:", "19:", "20:", "21:", "22:"]
-    if any(d in text for d in days) and any(t in text for t in times):
-        return " -- Fr/Sa Abend erkannt!"
-    elif any(d in text for d in days):
-        return " -- Fr/Sa Termin erkannt"
-    return ""
-
-
 def notify(title: str, message: str, url: str = "", priority: str = "high"):
     if not NTFY_TOPIC:
         print(f"  [Notification] {title}: {message}")
@@ -134,77 +192,91 @@ def main():
     state = load_state()
     state_changed = False
 
-    print(f"Pruefe {len(config['sites'])} Seiten ...")
+    print(f"Pruefe {len(config['sites'])} Seiten (Ziel-Daten: {sorted(WIESN_DATES)}) ...")
 
     for site in config["sites"]:
-            key = site["key"]
-            name = site["name"]
-            url = site["url"]
-            site_type = site.get("type", "generic")
+        key = site["key"]
+        name = site["name"]
+        url = site["url"]
+        site_type = site.get("type", "generic")
 
-            print(f"  {name} ...")
-            html = fetch_page(url)
+        print(f"  {name} ...")
 
-            if not html:
+        if site_type == "portal":
+            # Playwright: pruefe Abend-Sessions pro Datum
+            sessions = check_portal_sessions(url)
+            if not sessions:
+                print(f"    Keine Ziel-Daten im Dropdown")
                 continue
 
-            text = extract_text(html, site_type)
-            current_hash = hashlib.md5(text.encode()).hexdigest()
-            previous_hash = state.get(key)
+            session_state_key = f"{key}_sessions"
+            old_sessions = state.get(session_state_key, {})
+            new_sessions = {d: v for d, v in sessions.items() if v is not None}
 
-            if previous_hash is None:
-                print(f"    Baseline gespeichert ({len(text)} Zeichen)")
-                state[key] = current_hash
-                state[f"{key}_text"] = text
+            if new_sessions != old_sessions:
+                state[session_state_key] = {**old_sessions, **new_sessions}
                 state_changed = True
-                continue
 
-            if current_hash == previous_hash:
-                print(f"    Keine Aenderung")
-                continue
-
-            print(f"    AENDERUNG erkannt!")
-
-            old_text = state.get(f"{key}_text", "")
-            state[key] = current_hash
-            state[f"{key}_text"] = text
-            state_changed = True
-
-            kontingent_info = detect_kontingent_announcement(text)
-            if kontingent_info and site.get("kontingent"):
-                notify(
-                    title=f"KONTINGENT: {name}",
-                    message=f"Datum + Uhrzeit angekuendigt: {kontingent_info}\nJetzt vormerken!",
-                    url=url,
-                    priority="urgent",
-                )
-            elif site_type == "portal":
-                old_dates = set(re.findall(r"datum:(\S+)", old_text))
-                new_dates = set(re.findall(r"datum:(\S+)", text))
-                added = new_dates - old_dates
-                if added:
-                    added_str = ", ".join(DATE_LABELS.get(d, d) for d in sorted(added))
+                # Welche Daten haben jetzt Abend, hatten es vorher nicht?
+                newly_abend = [
+                    d for d, has_abend in new_sessions.items()
+                    if has_abend and not old_sessions.get(d, False)
+                ]
+                if newly_abend:
+                    labels = ", ".join(DATE_LABELS.get(d, d) for d in sorted(newly_abend))
                     notify(
-                        title=f"NEU: {name}",
-                        message=f"Neues Datum verfuegbar: {added_str}\nJetzt buchen!",
+                        title=f"ABEND: {name}",
+                        message=f"Abendschicht neu verfuegbar: {labels}\nJetzt buchen!",
                         url=url,
                         priority="urgent",
                     )
                 else:
-                    notify(
-                        title=f"Aenderung: {name}",
-                        message=f"Seite hat sich geaendert\nJetzt pruefen!",
-                        url=url,
-                        priority="high",
-                    )
+                    print(f"    Session-Status geaendert (kein neues Abend)")
             else:
-                shift_hint = detect_good_shift(text)
-                notify(
-                    title=f"Aenderung: {name}",
-                    message=f"Seite hat sich geaendert{shift_hint}\nJetzt pruefen!",
-                    url=url,
-                    priority="high",
-                )
+                print(f"    Keine Aenderung")
+            continue
+
+        # Nicht-Portal: Hash-basiert
+        html = fetch_page(url)
+        if not html:
+            continue
+
+        text = extract_text(html, site_type)
+        current_hash = hashlib.md5(text.encode()).hexdigest()
+        previous_hash = state.get(key)
+
+        if previous_hash is None:
+            print(f"    Baseline gespeichert ({len(text)} Zeichen)")
+            state[key] = current_hash
+            state[f"{key}_text"] = text
+            state_changed = True
+            continue
+
+        if current_hash == previous_hash:
+            print(f"    Keine Aenderung")
+            continue
+
+        print(f"    AENDERUNG erkannt!")
+        old_text = state.get(f"{key}_text", "")
+        state[key] = current_hash
+        state[f"{key}_text"] = text
+        state_changed = True
+
+        kontingent_info = detect_kontingent_announcement(text)
+        if kontingent_info and site.get("kontingent"):
+            notify(
+                title=f"KONTINGENT: {name}",
+                message=f"Datum + Uhrzeit angekuendigt: {kontingent_info}\nJetzt vormerken!",
+                url=url,
+                priority="urgent",
+            )
+        else:
+            notify(
+                title=f"Aenderung: {name}",
+                message=f"Seite hat sich geaendert\nJetzt pruefen!",
+                url=url,
+                priority="high",
+            )
 
     if state_changed:
         save_state(state)
