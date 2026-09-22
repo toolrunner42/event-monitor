@@ -1,7 +1,5 @@
 {
   "target_dates": {
-    "2026-09-20": "So 20.09",
-    "2026-09-21": "Mo 21.09",
     "2026-09-25": "Fr 25.09",
     "2026-09-26": "Sa 26.09"
   },
@@ -87,13 +85,6 @@
       "key": "armbrustschuetzen_portal",
       "name": "Armbrustschuetzenzelt Portal",
       "url": "https://reservierung.armbrustschuetzenzelt.de/reservierung",
-      "type": "portal",
-      "kontingent": false
-    },
-    {
-      "key": "schottenhamel_portal",
-      "name": "Schottenhamel Portal",
-      "url": "https://reservierung.festhalle-schottenhamel.de/register/1",
       "type": "portal",
       "kontingent": false
     },
