@@ -43,76 +43,19 @@ def fetch_page(url: str) -> Optional[str]:
         return None
 
 
-def check_portal_sessions(url: str) -> dict:
-    """
-    Hybrid: requests fuer Datum-Erkennung (SSR), Playwright fuer Session-Check (Seite 2).
-    Gibt {date: True/False} zurueck. Nur Daten die im SSR-Dropdown vorhanden sind.
-    """
-    from playwright.sync_api import sync_playwright
-
-    # SSR: welche Ziel-Daten sind im Dropdown?
+def check_portal_dates(url: str) -> list:
+    """SSR: gibt Liste der Ziel-Daten zurueck die im Dropdown vorhanden sind."""
     html = fetch_page(url)
     if not html:
-        return {}
+        return []
     soup = BeautifulSoup(html, "html.parser")
-    available = []
+    found = []
     for sel in soup.find_all("select"):
         for o in sel.find_all("option"):
             val = o.get("value", "").strip()
             if val in WIESN_DATES:
-                available.append(val)
-
-    if not available:
-        return {}
-
-    results = {}
-    try:
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True)
-            page = browser.new_page()
-            page.set_extra_http_headers({"Accept-Language": "de-DE,de;q=0.9"})
-            page.goto(url, wait_until="networkidle", timeout=30000)
-            page.wait_for_timeout(1500)
-
-            for date in available:
-                try:
-                    page.evaluate(f"""
-                        () => {{
-                            const selects = document.querySelectorAll('select');
-                            for (const sel of selects) {{
-                                for (const opt of sel.options) {{
-                                    if (opt.value === '{date}') {{
-                                        sel.value = '{date}';
-                                        sel.dispatchEvent(new Event('input', {{bubbles: true}}));
-                                        sel.dispatchEvent(new Event('change', {{bubbles: true}}));
-                                        break;
-                                    }}
-                                }}
-                            }}
-                        }}
-                    """)
-                    page.wait_for_timeout(3000)
-                    page.wait_for_load_state("networkidle", timeout=10000)
-
-                    soup = BeautifulSoup(page.content(), "html.parser")
-                    for tag in soup(["script", "style", "meta", "link", "noscript"]):
-                        tag.decompose()
-                    text = soup.get_text(separator=" ", strip=True)
-                    has_abend = "abend" in text.lower()
-                    results[date] = has_abend
-                    print(f"    {date}: {'Abend verfuegbar' if has_abend else 'kein Abend (nur Morgen/Mittag)'}")
-
-                    page.goto(url, wait_until="networkidle", timeout=30000)
-                    page.wait_for_timeout(1500)
-
-                except Exception as e:
-                    print(f"    {date}: Fehler: {e}")
-
-            browser.close()
-    except Exception as e:
-        print(f"  Playwright-Fehler: {e}")
-
-    return results
+                found.append(val)
+    return found
 
 
 def extract_text(html: str, site_type: str) -> str:
@@ -202,32 +145,28 @@ def main():
         print(f"  {name} ...")
 
         if site_type == "portal":
-            session_results = check_portal_sessions(url)
-            if not session_results:
+            found_dates = check_portal_dates(url)
+            if not found_dates:
                 print(f"    Keine Ziel-Daten im Dropdown")
                 continue
 
-            newly_available = []
-            for date, has_abend in session_results.items():
+            newly_found = []
+            for date in found_dates:
                 state_key = f"{key}_{date}"
-                was_available = state.get(state_key)
-                state[state_key] = has_abend
+                was_known = state.get(state_key, False)
+                state[state_key] = True
                 state_changed = True
-                if was_available is None:
-                    print(f"    {date}: Baseline ({'Abend' if has_abend else 'kein Abend'})")
-                elif not was_available and has_abend:
-                    print(f"    {date}: NEU Abend verfuegbar!")
-                    newly_available.append(date)
-                elif was_available and not has_abend:
-                    print(f"    {date}: Abend nicht mehr verfuegbar")
+                if not was_known:
+                    print(f"    {date}: NEU im Dropdown!")
+                    newly_found.append(date)
                 else:
-                    print(f"    {date}: Keine Aenderung ({'Abend' if has_abend else 'kein Abend'})")
+                    print(f"    {date}: bereits bekannt")
 
-            if newly_available:
-                labels = ", ".join(DATE_LABELS.get(d, d) for d in sorted(newly_available))
+            if newly_found:
+                labels = ", ".join(DATE_LABELS.get(d, d) for d in sorted(newly_found))
                 notify(
-                    title=f"ABEND frei: {name}",
-                    message=f"Abendschicht verfuegbar: {labels}\nJetzt buchen!",
+                    title=f"Datum frei: {name}",
+                    message=f"{labels} verfuegbar -- Abend pruefen!\nJetzt buchen!",
                     url=url,
                     priority="urgent",
                 )
